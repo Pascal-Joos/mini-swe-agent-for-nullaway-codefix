@@ -58,6 +58,7 @@ def main(
     config_spec: Path = typer.Option(DEFAULT_CONFIG, "-c", "--config", help="Path to config file"),
     output: Path | None = typer.Option(DEFAULT_OUTPUT, "-o", "--output", help="Output trajectory file"),
     exit_immediately: bool = typer.Option( False, "--exit-immediately", help="Exit immediately when the agent wants to finish instead of prompting.", rich_help_panel="Advanced"),
+    prompt_for_more_budget: bool = typer.Option( False, "--prompt-for-more-budget", help="Prompt user to increase budget when limits are exceeded. Only applies in non-visual mode.", rich_help_panel="Advanced"),
     target_working_directory: str = typer.Option( "", "-d", "--target-working-directory", help="The working directory in which the agent should operate."),
 ) -> Any:
     # fmt: on
@@ -94,6 +95,9 @@ def main(
     agent_class = InteractiveAgent
     if visual == (os.getenv("MSWEA_VISUAL_MODE_DEFAULT", "false") == "false"):
         agent_class = TextualAgent
+
+    if issubclass(agent_class, InteractiveAgent) and prompt_for_more_budget:
+        config.setdefault("agent", {})["prompt_for_more_budget"] = True
 
     agent = agent_class(model, env, **config.get("agent", {}))
     exit_status, result, extra_info = None, None, None

@@ -30,6 +30,8 @@ class InteractiveAgentConfig(AgentConfig):
     """Never confirm actions that match these regular expressions."""
     confirm_exit: bool = True
     """If the agent wants to finish, do we ask for confirmation from user?"""
+    prompt_for_more_budget: bool = False
+    """Do we ask user to increase budget when limits are exceeded?"""
 
 
 class InteractiveAgent(DefaultAgent):
@@ -70,9 +72,13 @@ class InteractiveAgent(DefaultAgent):
                 f"Limits exceeded. Limits: {self.config.step_limit} steps, ${self.config.cost_limit}.\n"
                 f"Current spend: {self.model.n_calls} steps, ${self.model.cost:.2f}."
             )
-            self.config.step_limit = int(input("New step limit: "))
-            self.config.cost_limit = float(input("New cost limit: "))
-            return super().query()
+
+            if self.config.prompt_for_more_budget:
+                self.config.step_limit = int(input("New step limit: "))
+                self.config.cost_limit = float(input("New cost limit: "))
+                return super().query()
+            else:
+                raise
 
     def step(self) -> dict:
         # Override the step method to handle user interruption
