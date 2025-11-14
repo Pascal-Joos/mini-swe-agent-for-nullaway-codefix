@@ -44,11 +44,20 @@ class DockerEnvironment:
         self._start_container()
 
     def get_template_vars(self) -> dict[str, Any]:
-        return asdict(self.config)
+        # Get platform info from inside the container
+        result = self.execute("python3 -c 'import platform; import json; print(json.dumps(platform.uname()._asdict()))'", timeout=5)
+        platform_info = {}
+        if result["returncode"] == 0:
+            import json
+            try:
+                platform_info = json.loads(result["output"].strip())
+            except json.JSONDecodeError:
+                pass
+        return asdict(self.config) | platform_info
 
     def _start_container(self):
         """Start the Docker container and return the container ID."""
-        container_name = f"minisweagent-{uuid.uuid4().hex[:8]}"
+        container_name = f"joos_minisweagent-{uuid.uuid4().hex[:8]}"
         cmd = [
             self.config.executable,
             "run",

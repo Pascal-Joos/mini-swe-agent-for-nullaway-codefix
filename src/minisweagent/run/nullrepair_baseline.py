@@ -11,6 +11,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+from minisweagent.environments.docker import DockerEnvironment
 import typer
 import yaml
 from prompt_toolkit.formatted_text import HTML
@@ -28,7 +29,7 @@ from minisweagent.run.extra.config import configure_if_first_time
 from minisweagent.run.utils.save import save_traj
 from minisweagent.utils.log import logger
 
-DEFAULT_CONFIG = Path(os.getenv("MSWEA_MINI_CONFIG_PATH", builtin_config_dir / "mini.yaml"))
+DEFAULT_CONFIG = Path(os.getenv("MSWEA_MINI_CONFIG_PATH", builtin_config_dir / "nullrepair_baseline.yaml"))
 DEFAULT_OUTPUT = global_config_dir / "last_mini_run.traj.json"
 console = Console(highlight=False)
 app = typer.Typer(rich_markup_mode="rich")
@@ -89,7 +90,12 @@ def main(
     if model_class is not None:
         config.setdefault("model", {})["model_class"] = model_class
     model = get_model(model_name, config.get("model", {}))
-    env = LocalEnvironment(cwd=target_working_directory, **config.get("env", {}))
+
+    print(config.get("environment", {}))
+    if config.get("environment", {}).get("image", None) is not None:
+        env = DockerEnvironment(cwd=target_working_directory, **config.get("environment", {}))
+    else:
+        env = LocalEnvironment(cwd=target_working_directory, **config.get("env", {}))
 
     # Both visual flag and the MSWEA_VISUAL_MODE_DEFAULT flip the mode, so it's essentially a XOR
     agent_class = InteractiveAgent
