@@ -93,7 +93,7 @@ def main(
 
     print(config.get("environment", {}))
     if config.get("environment", {}).get("image", None) is not None:
-        env = DockerEnvironment(cwd=target_working_directory, **config.get("environment", {}))
+        env = DockerEnvironment(cwd=target_working_directory, username=os.getenv("USER"), **config.get("environment", {}))
     else:
         env = LocalEnvironment(cwd=target_working_directory, **config.get("env", {}))
 

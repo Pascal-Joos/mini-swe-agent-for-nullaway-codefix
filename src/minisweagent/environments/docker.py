@@ -12,6 +12,8 @@ class DockerEnvironmentConfig:
     image: str
     cwd: str = "/"
     """Working directory in which to execute commands."""
+    username: str = "root"
+    """Username to use inside the container. Defaults to 'root'."""
     env: dict[str, str] = field(default_factory=dict)
     """Environment variables to set in the container."""
     forward_env: list[str] = field(default_factory=list)
@@ -68,6 +70,8 @@ class DockerEnvironment:
             self.config.cwd,
             *self.config.run_args,
             self.config.image,
+            "-u",
+            self.config.username,
             "sleep",
             self.config.container_timeout,
         ]
