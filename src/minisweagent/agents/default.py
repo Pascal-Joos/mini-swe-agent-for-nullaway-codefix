@@ -60,6 +60,8 @@ class DefaultAgent:
         self.model = model
         self.env = env
         self.extra_template_vars = {}
+        self.budget_exhausted = False
+        self.one_last_chance = False
 
     def render_template(self, template: str, **kwargs) -> str:
         template_vars = asdict(self.config) | self.env.get_template_vars() | self.model.get_template_vars()
@@ -91,8 +93,14 @@ class DefaultAgent:
 
     def query(self) -> dict:
         """Query the model and return the response."""
-        if 0 < self.config.step_limit <= self.model.n_calls or 0 < self.config.cost_limit <= self.model.cost:
+
+        if self.budget_exhausted:
             raise LimitsExceeded()
+        
+        if self.one_last_chance:
+            self.budget_exhausted = True
+        
+
         response = self.model.query(self.messages)
         self.add_message("assistant", **response)
         return response
@@ -100,6 +108,15 @@ class DefaultAgent:
     def get_observation(self, response: dict) -> dict:
         """Execute the action and return the observation."""
         output = self.execute_action(self.parse_action(response))
+
+        # Set the budget_exhausted flag once the budget limit is reached. The agent then gets one last chance to respond, warning it to submit the final output.
+        if not self.one_last_chance and (0 < self.config.step_limit <= self.model.n_calls or 0 < self.config.cost_limit <= self.model.cost):
+            self.one_last_chance = True
+            output["output"] += "\n\n<important>" \
+            +"\nYour budget for this task is exhausted. If you think you sucessfully created a fix, submit your changes now.\n" \
+            + "To do so issue the following command: `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`.\n" \
+            + "</important>"
+
         observation = self.render_template(self.config.action_observation_template, output=output)
         self.add_message("user", observation)
         return output
