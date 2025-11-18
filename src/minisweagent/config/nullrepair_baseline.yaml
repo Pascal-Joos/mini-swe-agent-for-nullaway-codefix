@@ -144,6 +144,7 @@ agent:
   cost_limit: 0.5
 
 environment:
+  image: "joos/minisweagent_for_nullrepair:latest"
   env:
     PAGER: cat
     MANPAGER: cat

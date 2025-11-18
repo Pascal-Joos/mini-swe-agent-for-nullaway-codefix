@@ -12,8 +12,6 @@ class DockerEnvironmentConfig:
     image: str
     cwd: str = "/"
     """Working directory in which to execute commands."""
-    username: str = "root"
-    """Username to use inside the container. Defaults to 'root'."""
     env: dict[str, str] = field(default_factory=dict)
     """Environment variables to set in the container."""
     forward_env: list[str] = field(default_factory=list)
@@ -69,9 +67,19 @@ class DockerEnvironment:
             "-w",
             self.config.cwd,
             *self.config.run_args,
+            "--mount",
+            f"type=bind,source={self.config.cwd},target={self.config.cwd}",
+            "-e", 
+            f"HOST_UID={os.getuid()}",
+            "-e",
+            f"HOST_GID={os.getgid()}",
+            "-e", 
+            f"HOST_USER={os.getenv('USER')}",
+            "-v",
+            f"{self.config.cwd}/.gradle-cache:/home/{os.getenv('USER')}/.gradle",
+            "-v",
+            f"{os.getenv('HOME')}/.m2:/home/{os.getenv('USER')}/.m2",
             self.config.image,
-            "-u",
-            self.config.username,
             "sleep",
             self.config.container_timeout,
         ]
@@ -97,6 +105,10 @@ class DockerEnvironment:
                 cmd.extend(["-e", f"{key}={value}"])
         for key, value in self.config.env.items():
             cmd.extend(["-e", f"{key}={value}"])
+
+        # Append user config to command
+        cmd.extend(["--user", f"{os.getenv('USER')}"])
+
         cmd.extend([self.container_id, "bash", "-lc", command])
 
         result = subprocess.run(
