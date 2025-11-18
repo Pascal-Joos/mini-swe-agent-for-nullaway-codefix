@@ -57,6 +57,12 @@ def save_traj(
     } | kwargs
     if agent is not None:
         data["info"]["model_stats"]["instance_cost"] = agent.model.cost
+        if agent.model.completion_tokens is not None:
+            data["info"]["model_stats"]["completion_tokens"] = agent.model.completion_tokens
+        if agent.model.prompt_tokens is not None:
+            data["info"]["model_stats"]["prompt_tokens"] = agent.model.prompt_tokens
+        if agent.model.total_tokens is not None:
+            data["info"]["model_stats"]["total_tokens"] = agent.model.total_tokens
         data["info"]["model_stats"]["api_calls"] = agent.model.n_calls
         data["messages"] = agent.messages
         data["info"]["config"] = {
