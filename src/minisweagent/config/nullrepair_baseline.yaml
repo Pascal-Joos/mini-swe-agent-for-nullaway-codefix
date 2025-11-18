@@ -63,12 +63,6 @@ agent:
 
     ### Edit files with sed:
 
-    {%- if system == "Darwin" -%}
-    <important>
-    You are on MacOS. For all the below examples, you need to use `sed -i ''` instead of `sed -i`.
-    </important>
-    {%- endif -%}
-
     ```bash
     # Replace all occurrences
     sed -i 's/old_string/new_string/g' filename.py
