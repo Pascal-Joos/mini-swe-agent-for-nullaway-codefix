@@ -109,8 +109,8 @@ class DefaultAgent:
         """Execute the action and return the observation."""
         output = self.execute_action(self.parse_action(response))
 
-        # Set the budget_exhausted flag once the budget limit is reached. The agent then gets one last chance to respond, warning it to submit the final output.
-        if not self.one_last_chance and (0 < self.config.step_limit <= self.model.n_calls or 0 < self.config.cost_limit <= self.model.cost):
+        # Set the budget_exhausted flag once the budget limit is reached (or step_limit reached in one more step). The agent then gets one last chance to respond, warning it to submit the final output.
+        if not self.one_last_chance and (0 < self.config.step_limit <= (self.model.n_calls + 1) or 0 < self.config.cost_limit <= self.model.cost):
             self.one_last_chance = True
             output["output"] += "\n\n<important>" \
             +"\nYour budget for this task is exhausted. If you think you sucessfully created a fix, submit your changes now.\n" \
