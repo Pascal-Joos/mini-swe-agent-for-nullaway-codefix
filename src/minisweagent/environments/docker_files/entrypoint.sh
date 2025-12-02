@@ -21,5 +21,7 @@ fi
 mkdir -p "${USER_HOME}"
 chown -R "${USER_ID}:${GROUP_ID}" "${USER_HOME}"
 
+chown -R "${USER_ID}:${GROUP_ID}" /usr/lib/android-sdk
+
 # Switch to the user and exec the requested command
 exec su -s /bin/bash -c "$*" "${USER_NAME}"
