@@ -33,6 +33,7 @@ classifiers = [
 dependencies = [
     "scikit-learn",
     "pandas",
+    "matplotlib",
     "pyyaml",
     "requests",
     "jinja2",
