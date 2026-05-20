@@ -5,7 +5,7 @@ set -e
 USER_ID=${HOST_UID:-$(id -u)}
 GROUP_ID=${HOST_GID:-$(id -g)}
 USER_NAME=${HOST_USER:-minisweuser}
-USER_HOME=/home/${USER_NAME}
+USER_HOME=${HOST_HOME:-/home/${USER_NAME}}
 
 # Create group if it doesn't exist
 if ! getent group "${GROUP_ID}" > /dev/null 2>&1; then
@@ -19,7 +19,12 @@ fi
 
 # Ensure home directory exists and has correct ownership
 mkdir -p "${USER_HOME}"
-chown -R "${USER_ID}:${GROUP_ID}" "${USER_HOME}"
+# Only run chown if the current ownership doesn't match the desired UID/GID to avoid unnecessary operations
+current_uid=$(stat -c "%u" "${USER_HOME}")
+current_gid=$(stat -c "%g" "${USER_HOME}")
+if [ "${current_uid}" -ne "${USER_ID}" ] || [ "${current_gid}" -ne "${GROUP_ID}" ]; then
+  chown -R "${USER_ID}:${GROUP_ID}" "${USER_HOME}"
+fi
 
 chown -R "${USER_ID}:${GROUP_ID}" /usr/lib/android-sdk
 

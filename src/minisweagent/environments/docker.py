@@ -3,6 +3,7 @@ import os
 import shlex
 import subprocess
 import uuid
+import hashlib
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -55,8 +56,263 @@ class DockerEnvironment:
                 pass
         return asdict(self.config) | platform_info
 
+    def __build_image(self):
+        """Build the Docker image if it doesn't exist using docker build -t joos/minisweagent_for_nullrepair mini-swe-agent-for-nullaway-codefix/src/minisweagent/environments."""
+        result = subprocess.run(
+            [self.config.executable, "images", "-q", self.config.image],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            self.logger.error(f"Failed to check for existing image: {result.stderr}")
+            raise RuntimeError("Failed to check for existing Docker image")
+        if not result.stdout.strip():
+            self.logger.info(f"Image {self.config.image} not found locally. Building image...")
+            build_result = subprocess.run(
+                [self.config.executable, "build", "-t", self.config.image, "mini-swe-agent-for-nullaway-codefix/src/minisweagent/environments/"],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            if build_result.returncode != 0:
+                self.logger.error(f"Failed to build Docker image: {build_result.stderr}")
+                raise RuntimeError("Failed to build Docker image")
+            self.logger.info(f"Successfully built image {self.config.image}")
+        else:
+            self.logger.info(f"Image {self.config.image} found locally.")
+
+    def _use_volume_mounts(self) -> bool:
+        return os.path.exists("/.dockerenv")
+
+    def _get_self_container_id(self) -> str | None:
+        if not self._use_volume_mounts():
+            return None
+        hostname = os.getenv("HOSTNAME")
+        if hostname:
+            return hostname.strip()
+        try:
+            with open("/etc/hostname", "r", encoding="utf-8") as handle:
+                return handle.read().strip()
+        except OSError:
+            return None
+
+    def _ensure_volume(self, name: str) -> None:
+        subprocess.run(
+            [self.config.executable, "volume", "create", name],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        )
+
+    def _seed_project_volume(self, volume_name: str) -> None:
+        container_id = self._get_self_container_id()
+        if not container_id:
+            raise RuntimeError("Unable to resolve container ID for volume seeding")
+
+        check_cmd = [
+            self.config.executable,
+            "run",
+            "--rm",
+            "-v",
+            f"{volume_name}:/data",
+            "alpine",
+            "sh",
+            "-c",
+            "test -f /data/.minisweagent-seeded",
+        ]
+        check_result = subprocess.run(
+            check_cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if check_result.returncode == 0:
+            return
+
+        tar_cmd = [
+            self.config.executable,
+            "exec",
+            container_id,
+            "tar",
+            "-C",
+            self.config.cwd,
+            "-cf",
+            "-",
+            ".",
+        ]
+        untar_cmd = [
+            self.config.executable,
+            "run",
+            "--rm",
+            "-i",
+            "-v",
+            f"{volume_name}:/data",
+            "alpine",
+            "tar",
+            "-C",
+            "/data",
+            "-xf",
+            "-",
+        ]
+
+        tar_proc = subprocess.Popen(
+            tar_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
+        )
+        untar_result = subprocess.run(
+            untar_cmd,
+            stdin=tar_proc.stdout,
+            capture_output=True,
+            text=True,
+            timeout=self.config.pull_timeout,
+        )
+        if tar_proc.stdout:
+            tar_proc.stdout.close()
+        tar_stderr = tar_proc.stderr.read().decode("utf-8", "replace") if tar_proc.stderr else ""
+        tar_returncode = tar_proc.wait(timeout=self.config.pull_timeout)
+
+        if tar_returncode != 0 or untar_result.returncode != 0:
+            self.logger.error(f"Failed to seed volume {volume_name}. tar: {tar_stderr} untar: {untar_result.stderr}")
+            raise RuntimeError("Failed to seed project volume")
+
+        mark_cmd = [
+            self.config.executable,
+            "run",
+            "--rm",
+            "-v",
+            f"{volume_name}:/data",
+            "alpine",
+            "sh",
+            "-c",
+            "touch /data/.minisweagent-seeded",
+        ]
+        subprocess.run(
+            mark_cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        )
+
+    def _seed_cache_volume(self, volume_name: str, source_path: str, marker: str) -> None:
+        if not os.path.exists(source_path):
+            return
+        container_id = self._get_self_container_id()
+        if not container_id:
+            raise RuntimeError("Unable to resolve container ID for cache seeding")
+
+        check_cmd = [
+            self.config.executable,
+            "run",
+            "--rm",
+            "-v",
+            f"{volume_name}:/data",
+            "alpine",
+            "sh",
+            "-c",
+            f"test -f /data/{marker}",
+        ]
+        check_result = subprocess.run(
+            check_cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if check_result.returncode == 0:
+            return
+
+        tar_cmd = [
+            self.config.executable,
+            "exec",
+            container_id,
+            "tar",
+            "-C",
+            source_path,
+            "-cf",
+            "-",
+            ".",
+        ]
+        untar_cmd = [
+            self.config.executable,
+            "run",
+            "--rm",
+            "-i",
+            "-v",
+            f"{volume_name}:/data",
+            "alpine",
+            "tar",
+            "-C",
+            "/data",
+            "-xf",
+            "-",
+        ]
+
+        tar_proc = subprocess.Popen(
+            tar_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
+        )
+        untar_result = subprocess.run(
+            untar_cmd,
+            stdin=tar_proc.stdout,
+            capture_output=True,
+            text=True,
+            timeout=self.config.pull_timeout,
+        )
+        if tar_proc.stdout:
+            tar_proc.stdout.close()
+        tar_stderr = tar_proc.stderr.read().decode("utf-8", "replace") if tar_proc.stderr else ""
+        tar_returncode = tar_proc.wait(timeout=self.config.pull_timeout)
+
+        if tar_returncode != 0 or untar_result.returncode != 0:
+            self.logger.error(f"Failed to seed volume {volume_name}. tar: {tar_stderr} untar: {untar_result.stderr}")
+            raise RuntimeError("Failed to seed cache volume")
+
+        mark_cmd = [
+            self.config.executable,
+            "run",
+            "--rm",
+            "-v",
+            f"{volume_name}:/data",
+            "alpine",
+            "sh",
+            "-c",
+            f"touch /data/{marker}",
+        ]
+        subprocess.run(
+            mark_cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        )
+
+    def _get_project_volume_name(self) -> str:
+        digest = hashlib.sha256(self.config.cwd.encode("utf-8")).hexdigest()[:12]
+        return f"minisweagent-project-{digest}"
+
+    def _ensure_project_volume(self) -> str:
+        volume_name = self._get_project_volume_name()
+        self._ensure_volume(volume_name)
+        self._seed_project_volume(volume_name)
+        return volume_name
+
+    def _ensure_cache_volume(self, name: str) -> str:
+        self._ensure_volume(name)
+        return name
+
+
     def _start_container(self):
         """Start the Docker container and return the container ID."""
+
+        # Ensure the image is built before starting the container
+        self.__build_image()
+
         container_name = f"joos_minisweagent-{uuid.uuid4().hex[:8]}"
         cmd = [
             self.config.executable,
@@ -67,22 +323,45 @@ class DockerEnvironment:
             "-w",
             self.config.cwd,
             *self.config.run_args,
-            "--mount",
-            f"type=bind,source={self.config.cwd},target={self.config.cwd}",
+        ]
+        if self._use_volume_mounts():
+            project_volume = self._ensure_project_volume()
+            gradle_volume = self._ensure_cache_volume("minisweagent-gradle-cache")
+            m2_volume = self._ensure_cache_volume("minisweagent-m2-cache")
+            home_dir = os.getenv("HOME")
+            if home_dir:
+                self._seed_cache_volume(gradle_volume, os.path.join(home_dir, ".gradle"), ".minisweagent-gradle-seeded")
+                self._seed_cache_volume(m2_volume, os.path.join(home_dir, ".m2"), ".minisweagent-m2-seeded")
+            cmd.extend([
+                "--mount",
+                f"type=volume,src={project_volume},target={self.config.cwd}",
+                "--mount",
+                f"type=volume,src={gradle_volume},target={os.getenv('HOME')}/.gradle",
+                "--mount",
+                f"type=volume,src={m2_volume},target={os.getenv('HOME')}/.m2",
+            ])
+        else:
+            cmd.extend([
+                "--mount",
+                f"type=bind,source={self.config.cwd},target={self.config.cwd}",
+                "-v",
+                f"{self.config.cwd}/.gradle-cache:{os.getenv('HOME')}/.gradle",
+                "-v",
+                f"{os.getenv('HOME')}/.m2:{os.getenv('HOME')}/.m2",
+            ])
+        cmd.extend([
             "-e", 
             f"HOST_UID={os.getuid()}",
             "-e",
             f"HOST_GID={os.getgid()}",
             "-e", 
             f"HOST_USER={os.getenv('USER')}",
-            "-v",
-            f"{self.config.cwd}/.gradle-cache:/home/{os.getenv('USER')}/.gradle",
-            "-v",
-            f"{os.getenv('HOME')}/.m2:/home/{os.getenv('USER')}/.m2",
+            "-e",
+            f"HOST_HOME={os.getenv('HOME')}",
             self.config.image,
             "sleep",
             self.config.container_timeout,
-        ]
+        ])
         self.logger.debug(f"Starting container with command: {shlex.join(cmd)}")
         result = subprocess.run(
             cmd,
