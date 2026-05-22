@@ -82,8 +82,14 @@ class DockerEnvironment:
         else:
             self.logger.info(f"Image {self.config.image} found locally.")
 
+    # Use volume mounts if running Docker in container. If running in Dev Container don't use volume mounts
     def _use_volume_mounts(self) -> bool:
+        # Check for environment variable that indicates we're running in a Dev Container
+        if os.getenv("DEVCONTAINER") == "true":
+            return False
+        
         return os.path.exists("/.dockerenv")
+        
 
     def _get_self_container_id(self) -> str | None:
         if not self._use_volume_mounts():
