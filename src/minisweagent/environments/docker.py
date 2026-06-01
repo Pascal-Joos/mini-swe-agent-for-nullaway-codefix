@@ -407,9 +407,78 @@ class DockerEnvironment:
         )
         return {"output": result.stdout, "returncode": result.returncode}
 
+    def _sync_project_volume_back(self, volume_name: str) -> None:
+        """Copy changes from the project volume back into self.config.cwd in the outer container.
+
+        This is the reverse of _seed_project_volume: volume → outer container filesystem.
+        Required when running inside a container (volume-mount mode) because the agent writes
+        into the Docker volume, not the outer container's directory, so git operations in the
+        outer container would otherwise see no changes.
+        """
+        container_id = self._get_self_container_id()
+        if not container_id:
+            self.logger.warning("Cannot sync volume back: unable to resolve outer container ID")
+            return
+
+        tar_cmd = [
+            self.config.executable,
+            "run",
+            "--rm",
+            "-i",
+            "-v",
+            f"{volume_name}:/data",
+            "alpine",
+            "tar",
+            "-C",
+            "/data",
+            "-cf",
+            "-",
+            "--exclude=.minisweagent-seeded",
+            ".",
+        ]
+        untar_cmd = [
+            self.config.executable,
+            "exec",
+            "-i",
+            container_id,
+            "tar",
+            "-C",
+            self.config.cwd,
+            "-xf",
+            "-",
+        ]
+
+        tar_proc = subprocess.Popen(
+            tar_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
+        )
+        untar_result = subprocess.run(
+            untar_cmd,
+            stdin=tar_proc.stdout,
+            capture_output=True,
+            text=True,
+            timeout=self.config.pull_timeout,
+        )
+        if tar_proc.stdout:
+            tar_proc.stdout.close()
+        tar_stderr = tar_proc.stderr.read().decode("utf-8", "replace") if tar_proc.stderr else ""
+        tar_returncode = tar_proc.wait(timeout=self.config.pull_timeout)
+
+        if tar_returncode != 0 or untar_result.returncode != 0:
+            self.logger.error(
+                f"Failed to sync volume {volume_name} back to {self.config.cwd}. "
+                f"tar: {tar_stderr} untar: {untar_result.stderr}"
+            )
+        else:
+            self.logger.info(f"Synced volume {volume_name} back to {self.config.cwd}")
+
     def cleanup(self):
         """Stop and remove the Docker container."""
         if getattr(self, "container_id", None) is not None:  # if init fails early, container_id might not be set
+            if self._use_volume_mounts():
+                self._sync_project_volume_back(self._get_project_volume_name())
             cmd = f"(timeout 60 {self.config.executable} stop {self.container_id} || {self.config.executable} rm -f {self.container_id}) >/dev/null 2>&1 &"
             subprocess.Popen(cmd, shell=True)
 
