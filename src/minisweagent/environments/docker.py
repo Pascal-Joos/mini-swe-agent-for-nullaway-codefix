@@ -112,30 +112,18 @@ class DockerEnvironment:
             check=True,
         )
 
-    def _seed_project_volume(self, volume_name: str) -> None:
-        container_id = self._get_self_container_id()
-        if not container_id:
-            raise RuntimeError("Unable to resolve container ID for volume seeding")
-
-        check_cmd = [
-            self.config.executable,
-            "run",
-            "--rm",
-            "-v",
-            f"{volume_name}:/data",
-            "alpine",
-            "sh",
-            "-c",
-            "test -f /data/.minisweagent-seeded",
-        ]
-        check_result = subprocess.run(
-            check_cmd,
+    def _delete_volume(self, name: str) -> None:
+        subprocess.run(
+            [self.config.executable, "volume", "rm", "-f", name],
             capture_output=True,
             text=True,
             timeout=30,
         )
-        if check_result.returncode == 0:
-            return
+
+    def _seed_project_volume(self, volume_name: str) -> None:
+        container_id = self._get_self_container_id()
+        if not container_id:
+            raise RuntimeError("Unable to resolve container ID for volume seeding")
 
         tar_cmd = [
             self.config.executable,
@@ -184,25 +172,6 @@ class DockerEnvironment:
         if tar_returncode != 0 or untar_result.returncode != 0:
             self.logger.error(f"Failed to seed volume {volume_name}. tar: {tar_stderr} untar: {untar_result.stderr}")
             raise RuntimeError("Failed to seed project volume")
-
-        mark_cmd = [
-            self.config.executable,
-            "run",
-            "--rm",
-            "-v",
-            f"{volume_name}:/data",
-            "alpine",
-            "sh",
-            "-c",
-            "touch /data/.minisweagent-seeded",
-        ]
-        subprocess.run(
-            mark_cmd,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=True,
-        )
 
     def _seed_cache_volume(self, volume_name: str, source_path: str, marker: str) -> None:
         if not os.path.exists(source_path):
@@ -304,6 +273,7 @@ class DockerEnvironment:
 
     def _ensure_project_volume(self) -> str:
         volume_name = self._get_project_volume_name()
+        self._delete_volume(volume_name)
         self._ensure_volume(volume_name)
         self._seed_project_volume(volume_name)
         return volume_name
@@ -433,7 +403,6 @@ class DockerEnvironment:
             "/data",
             "-cf",
             "-",
-            "--exclude=.minisweagent-seeded",
             ".",
         ]
         untar_cmd = [
