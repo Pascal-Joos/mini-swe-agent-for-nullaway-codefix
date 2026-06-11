@@ -31,12 +31,6 @@ classifiers = [
 ]
 
 dependencies = [
-    "scikit-learn",
-    "pandas",
-    "matplotlib",
-    "matplotlib_venn",
-    "jupyter",
-    "venn",
     "pyyaml",
     "requests",
     "jinja2",
